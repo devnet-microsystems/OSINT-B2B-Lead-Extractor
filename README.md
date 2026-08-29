@@ -1,6 +1,6 @@
 # 🕵️‍♂️ OSINT B2B Lead Extractor
 
-A privacy-first, highly controlled Python OSINT tool to extract role-based corporate emails (e.g., `sales@`, `hello@`, `security@`) from public company websites using Playwright.
+A privacy-first, highly controlled Python OSINT tool to extract corporate emails from public company websites using Playwright.
 
 **Built by Antonio Michelotti** — Lead Architect at [DEV-NET Microsystems](https://devnet-microsystems.com/). 
 
@@ -13,7 +13,7 @@ A privacy-first, highly controlled Python OSINT tool to extract role-based corpo
 Unlike aggressive scraping bots, this tool is designed for ethical B2B market research:
 - **Respects `robots.txt`**: Strictly adheres to crawling policies.
 - **No CAPTCHA Bypassing**: If a site blocks the request, it gracefully skips it.
-- **Role-Based Only**: Extracts ONLY corporate role emails (`info@`, `partners@`, etc.). It automatically filters out personal emails and generic webmail domains (gmail, yahoo, etc.).
+- **Strict Business Emails Only**: Extracts any valid corporate email found on the website (including direct contacts like ceo@ or founders@), but strictly filters out any personal or generic webmail domains (gmail, yahoo, hotmail, protonmail, etc.) to ensure high-quality B2B leads.
 - **DuckDuckGo HTML SERP**: Uses the lightweight HTML version of DuckDuckGo for querying without triggering aggressive rate limits.
 
 ## 🛠️ Installation (macOS / Linux)
