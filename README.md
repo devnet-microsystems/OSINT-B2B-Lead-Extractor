@@ -14,7 +14,7 @@ Unlike aggressive scraping bots, this tool is designed for ethical B2B market re
 - **Respects `robots.txt`**: Strictly adheres to crawling policies.
 - **No CAPTCHA Bypassing**: If a site blocks the request, it gracefully skips it.
 - **Strict Business Emails Only**: Extracts any valid corporate email found on the website (including direct contacts like ceo@ or founders@), but strictly filters out any personal or generic webmail domains (gmail, yahoo, hotmail, protonmail, etc.) to ensure high-quality B2B leads.
-- **DuckDuckGo HTML SERP**: Uses the lightweight HTML version of DuckDuckGo for querying without triggering aggressive rate limits.
+- **Bing SERP Extraction**: Uses the lightweight HTML version of Bing for querying without triggering aggressive rate limits.
 
 ## 🛠️ Installation (macOS / Linux)
 
