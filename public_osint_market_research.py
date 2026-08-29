@@ -44,7 +44,7 @@ from playwright.sync_api import Browser, Error as PlaywrightError, Page, sync_pl
 APP_NAME = "PublicOSINTMarketResearch"
 APP_VERSION = "1.0.0"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-SERP_URL = "https://www.bing.com/search?q="
+SERP_URL = "https://lite.duckduckgo.com/lite/"
 REQUEST_TIMEOUT_SECONDS = 15
 PAGE_TIMEOUT_MS = 25_000
 COMPANY_DELAY_MIN_SECONDS = 8
@@ -298,75 +298,45 @@ def load_queries(path: Path) -> list[str]:
     return list(dict.fromkeys(values))
 
 
-def resolve_bing_result(href: str) -> str:
-    """Returns a direct public URL from a Bing redirect link."""
-    href = href.strip()
-    parsed = urlsplit(href)
-    if "bing.com" in (parsed.hostname or "").lower():
-        query_params = parse_qs(parsed.query)
-        if "u" in query_params:
-            u_param = query_params["u"][0]
-            if u_param.startswith("a1"):
-                b64_str = u_param[2:]
-                try:
-                    padding_needed = len(b64_str) % 4
-                    if padding_needed:
-                        b64_str += "=" * (4 - padding_needed)
-                    decoded = base64.urlsafe_b64decode(b64_str).decode("utf-8", errors="ignore")
-                    return normalize_url(decoded)
-                except Exception:
-                    pass
-    return normalize_url(href)
-
-
 def discover_serp_urls(page: Page, query: str, result_limit: int, audit: AuditLog) -> list[str] | None:
-    search_url = SERP_URL + quote_plus(query)
+    import urllib.request
+    import urllib.parse
+    
+    data = urllib.parse.urlencode({'q': query}).encode('utf-8')
+    req = urllib.request.Request(SERP_URL, data=data, headers={"User-Agent": USER_AGENT})
+    
     try:
-        response = page.goto(search_url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
-        if response is None or response.status >= 400:
-            audit.event("serp_http_error", search_url, f"HTTP {response.status if response else 'none'}")
-            return []
-        page.wait_for_timeout(500)
-        debug_snapshot(page, f"serp_{abs(hash(query))}")
-        page_text = page.locator("body").inner_text(timeout=4_000)
-    except PlaywrightError as exc:
-        audit.event("serp_navigation_error", search_url, str(exc))
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+    except Exception as exc:
+        audit.event("serp_navigation_error", SERP_URL, str(exc))
         return []
 
-    if page_is_blocked(page_text):
-        audit.event("serp_blocked_stop", search_url, "block or CAPTCHA marker detected; no retry")
-        logging.warning("Bing displayed a block marker. Stopping remaining queries.")
-        return None
-
+    raw_links = re.findall(r'<a rel="nofollow" href="([^"]+)"', html)
+    
     candidates: list[str] = []
     raw_result_links = 0
     blocked_result_links = 0
-    all_links = 0
-    try:
-        anchors = page.locator("li.b_algo h2 a")
-        anchor_count = min(anchors.count(), 100)
-        all_links = anchor_count
-        for index in range(anchor_count):
-            anchor = anchors.nth(index)
-            href = anchor.get_attribute("href") or ""
-            raw_result_links += 1
-            candidate = resolve_bing_result(href)
-            if not candidate:
-                continue
-            if is_disallowed_host(candidate):
-                blocked_result_links += 1
-                continue
-            candidates.append(candidate)
-    except PlaywrightError as exc:
-        audit.event("serp_extract_error", search_url, str(exc))
-        return []
+    all_links = len(raw_links)
+    
+    for href in raw_links:
+        if href.startswith('//lite.duckduckgo.com') or href.startswith('/lite/'):
+            continue
+        raw_result_links += 1
+        candidate = normalize_url(href)
+        if not candidate:
+            continue
+        if is_disallowed_host(candidate):
+            blocked_result_links += 1
+            continue
+        candidates.append(candidate)
 
     deduplicated = list(dict.fromkeys(candidates))[:result_limit]
     detail = (
         f"query={query}; all_links={all_links}; raw_result_links={raw_result_links}; "
         f"blocked_hosts={blocked_result_links}; allowed_urls={len(deduplicated)}"
     )
-    audit.event("serp_urls_discovered", search_url, detail)
+    audit.event("serp_urls_discovered", SERP_URL, detail)
     logging.info("SERP diagnostics: %s", detail)
     if not deduplicated:
         logging.warning(
@@ -375,6 +345,7 @@ def discover_serp_urls(page: Page, query: str, result_limit: int, audit: AuditLo
             DEBUG_DIR or "debug disabled",
         )
     return deduplicated
+
 
 
 def visit_company_page(page: Page, url: str, audit: AuditLog) -> bool:
