@@ -21,6 +21,7 @@ where the collection and any subsequent marketing use are lawful.
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import json
 import logging
@@ -43,7 +44,7 @@ from playwright.sync_api import Browser, Error as PlaywrightError, Page, sync_pl
 APP_NAME = "PublicOSINTMarketResearch"
 APP_VERSION = "1.0.0"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-SERP_URL = "https://html.duckduckgo.com/html/?q="
+SERP_URL = "https://www.bing.com/search?q="
 REQUEST_TIMEOUT_SECONDS = 15
 PAGE_TIMEOUT_MS = 25_000
 COMPANY_DELAY_MIN_SECONDS = 8
@@ -297,15 +298,25 @@ def load_queries(path: Path) -> list[str]:
     return list(dict.fromkeys(values))
 
 
-def resolve_ddg_result(href: str) -> str:
-    """Returns a direct public URL from either a direct link or DDG redirect link."""
+def resolve_bing_result(href: str) -> str:
+    """Returns a direct public URL from a Bing redirect link."""
     href = href.strip()
-    absolute = urljoin("https://html.duckduckgo.com/", href)
-    parsed = urlsplit(absolute)
-    if (parsed.hostname or "").lower().endswith("duckduckgo.com"):
-        target = parse_qs(parsed.query).get("uddg", [""])[0]
-        return normalize_url(unquote(target))
-    return normalize_url(absolute)
+    parsed = urlsplit(href)
+    if "bing.com" in (parsed.hostname or "").lower():
+        query_params = parse_qs(parsed.query)
+        if "u" in query_params:
+            u_param = query_params["u"][0]
+            if u_param.startswith("a1"):
+                b64_str = u_param[2:]
+                try:
+                    padding_needed = len(b64_str) % 4
+                    if padding_needed:
+                        b64_str += "=" * (4 - padding_needed)
+                    decoded = base64.urlsafe_b64decode(b64_str).decode("utf-8", errors="ignore")
+                    return normalize_url(decoded)
+                except Exception:
+                    pass
+    return normalize_url(href)
 
 
 def discover_serp_urls(page: Page, query: str, result_limit: int, audit: AuditLog) -> list[str] | None:
@@ -324,7 +335,7 @@ def discover_serp_urls(page: Page, query: str, result_limit: int, audit: AuditLo
 
     if page_is_blocked(page_text):
         audit.event("serp_blocked_stop", search_url, "block or CAPTCHA marker detected; no retry")
-        logging.warning("DuckDuckGo displayed a block marker. Stopping remaining queries.")
+        logging.warning("Bing displayed a block marker. Stopping remaining queries.")
         return None
 
     candidates: list[str] = []
@@ -332,22 +343,14 @@ def discover_serp_urls(page: Page, query: str, result_limit: int, audit: AuditLo
     blocked_result_links = 0
     all_links = 0
     try:
-        anchors = page.locator("a[href]")
-        anchor_count = min(anchors.count(), 400)
+        anchors = page.locator("li.b_algo h2 a")
+        anchor_count = min(anchors.count(), 100)
         all_links = anchor_count
         for index in range(anchor_count):
             anchor = anchors.nth(index)
-            classes = (anchor.get_attribute("class") or "").lower()
             href = anchor.get_attribute("href") or ""
-            is_result = (
-                "result__a" in classes
-                or "result-link" in classes
-                or anchor.get_attribute("data-testid") == "result-title-a"
-            )
-            if not is_result:
-                continue
             raw_result_links += 1
-            candidate = resolve_ddg_result(href)
+            candidate = resolve_bing_result(href)
             if not candidate:
                 continue
             if is_disallowed_host(candidate):
